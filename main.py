@@ -8,7 +8,6 @@ import requests
 load_dotenv()
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-FLASK_API_URL = os.getenv("FLASK_API_URL")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -21,12 +20,14 @@ st.title("💬 Chatbot (Lead-based Conversation)")
 if "lead_id" not in st.session_state:
     with st.form("lead_validation"):
         lead_id_input = st.text_input("Enter your Lead ID (UUID format):")
+        server_endpoint = st.text_input("Enter the server to receive the messages:")
         submitted = st.form_submit_button("Validate Lead")
-        if submitted:
+        if (submitted) and (server_endpoint != ''):
             # Validate against Supabase leads table
             lead_check = supabase.table("leads").select("id").eq("id", lead_id_input).execute()
             if lead_check.data:
                 st.session_state.lead_id = lead_id_input
+                st.session_state.server_endpoint = server_endpoint
                 st.success("✅ Lead validated successfully!")
                 st.rerun()
             else:
@@ -34,6 +35,8 @@ if "lead_id" not in st.session_state:
     st.stop()  # Stop app until validated
 
 lead_id = st.session_state.lead_id
+server_endpoint = st.session_state.server_endpoint
+server_endpoint = server_endpoint + "/receive_message"
 
 # ----------------------------------------------------------
 # 2️⃣ Load conversation for this lead
@@ -71,7 +74,7 @@ if user_input:
     # Call Flask API
     try:
         payload = {"message": user_input, "lead_id": lead_id}
-        response = requests.post(FLASK_API_URL, json=payload, timeout=5)
+        response = requests.post(server_endpoint, json=payload, timeout=5)
         if response.status_code == 200:
             bot_reply = response.json().get("reply", "✅ Flask API processed message.")
         else:
