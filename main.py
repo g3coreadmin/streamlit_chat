@@ -90,4 +90,17 @@ if user_input:
 
     while True:
         time.sleep(5)
+        
+        response = (
+        supabase.table("messages")
+        .select("*")
+        .eq("lead_id", lead_id)
+        .order("created_at", desc=False)
+        .execute()
+    )
+        st.session_state.messages = response.data if response.data else []
+        for msg in st.session_state.messages:
+            prefix = "🧑" if msg["role"] == "user" else "🤖"
+            st.markdown(f"**{prefix} {msg['role'].capitalize()}:** {msg['content']}")
+
         st.rerun()
