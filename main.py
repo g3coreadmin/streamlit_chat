@@ -3,6 +3,7 @@ from supabase import create_client, Client
 from dotenv import load_dotenv
 import os
 import requests
+import time
 
 # --- Load environment ---
 load_dotenv()
@@ -74,7 +75,7 @@ if user_input:
     # Call Flask API
     try:
         payload = {"message": user_input, "lead_id": lead_id}
-        response = requests.post(server_endpoint, json=payload, timeout=5)
+        response = requests.post(server_endpoint, json=payload, timeout=50)
         if response.status_code == 200:
             bot_reply = response.json().get("reply", "✅ Flask API processed message.")
         else:
@@ -87,4 +88,6 @@ if user_input:
     supabase.table("messages").insert(bot_msg).execute()
     st.session_state.messages.append(bot_msg)
 
-    st.rerun()
+    while True:
+        time.sleep(5)
+        st.rerun()
