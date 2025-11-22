@@ -3,7 +3,6 @@ from supabase import create_client, Client
 from dotenv import load_dotenv
 import os
 import requests
-import time
 
 # --- Load environment ---
 load_dotenv()
@@ -23,9 +22,14 @@ if "lead_id" not in st.session_state:
         lead_id_input = st.text_input("Enter your Lead ID (UUID format):")
         server_endpoint = st.text_input("Enter the server to receive the messages:")
         submitted = st.form_submit_button("Validate Lead")
-        if (submitted) and (server_endpoint != ''):
+        if submitted and server_endpoint != "":
             # Validate against Supabase leads table
-            lead_check = supabase.table("leads").select("id").eq("id", lead_id_input).execute()
+            lead_check = (
+                supabase.table("leads")
+                .select("id")
+                .eq("id", lead_id_input)
+                .execute()
+            )
             if lead_check.data:
                 st.session_state.lead_id = lead_id_input
                 st.session_state.server_endpoint = server_endpoint
@@ -40,7 +44,7 @@ server_endpoint = st.session_state.server_endpoint
 server_endpoint = server_endpoint + "/receive_message"
 
 # ----------------------------------------------------------
-# 2️⃣ Load conversation for this lead
+# 2️⃣ Load conversation for this lead (first time only)
 # ----------------------------------------------------------
 if "messages" not in st.session_state:
     response = (
@@ -52,55 +56,58 @@ if "messages" not in st.session_state:
     )
     st.session_state.messages = response.data if response.data else []
 
-# ----------------------------------------------------------
-# 3️⃣ Display conversation
-# ----------------------------------------------------------
 st.subheader(f"Conversation for Lead ID: `{lead_id}`")
 
+# ----------------------------------------------------------
+# 3️⃣ Display conversation using chat bubbles
+# ----------------------------------------------------------
 for msg in st.session_state.messages:
-    prefix = "🧑" if msg["role"] == "user" else "🤖"
-    st.markdown(f"**{prefix} {msg['role'].capitalize()}:** {msg['content']}")
+    # Map DB roles to Streamlit roles
+    role = "user" if msg["role"] == "user" else "assistant"
+    avatar = "🧑" if msg["role"] == "user" else "🤖"
+
+    with st.chat_message(role, avatar=avatar):
+        st.markdown(msg["content"])
 
 # ----------------------------------------------------------
-# 4️⃣ Input field
+# 4️⃣ Input field (chat-style)
 # ----------------------------------------------------------
 user_input = st.chat_input("Type your message...")
 
 if user_input:
-    # Save user message with lead_id
+    # --- 4.1 Save & show user message immediately ---
     new_msg = {"lead_id": lead_id, "role": "user", "content": user_input}
     supabase.table("messages").insert(new_msg).execute()
     st.session_state.messages.append(new_msg)
 
-    # Call Flask API
-    try:
-        payload = {"message": user_input, "lead_id": lead_id}
-        response = requests.post(server_endpoint, json=payload, timeout=50)
-        if response.status_code == 200:
-            bot_reply = response.json().get("reply", "✅ Flask API processed message.")
-        else:
-            bot_reply = f"❌ API error: {response.status_code}"
-    except Exception as e:
-        bot_reply = f"⚠️ Error contacting Flask API: {e}"
+    # Show the user bubble (right side)
+    with st.chat_message("user", avatar="🧑"):
+        st.markdown(user_input)
 
-    # Save bot response with lead_id
+    # --- 4.2 Show "loading" bubble for the bot ---
+    with st.chat_message("assistant", avatar="🤖"):
+        placeholder = st.empty()
+        placeholder.markdown("⌛ Pensando...")
+
+        # --- 4.3 Call Flask API ---
+        try:
+            payload = {"message": user_input, "lead_id": lead_id}
+            response = requests.post(server_endpoint, json=payload, timeout=30)
+
+            if response.status_code == 200:
+                bot_reply = response.json().get("reply", "✅ Flask API processed message.")
+            else:
+                bot_reply = f"❌ API error: {response.status_code}"
+        except Exception as e:
+            bot_reply = f"⚠️ Error contacting Flask API: {e}"
+
+        # Replace loading text with real reply
+        placeholder.markdown(bot_reply)
+
+    # --- 4.4 Save bot response & update session ---
     bot_msg = {"lead_id": lead_id, "role": "bot", "content": bot_reply}
     supabase.table("messages").insert(bot_msg).execute()
     st.session_state.messages.append(bot_msg)
 
-    while True:
-        time.sleep(5)
-        
-        response = (
-        supabase.table("messages")
-        .select("*")
-        .eq("lead_id", lead_id)
-        .order("created_at", desc=False)
-        .execute()
-    )
-        st.session_state.messages = response.data if response.data else []
-        for msg in st.session_state.messages:
-            prefix = "🧑" if msg["role"] == "user" else "🤖"
-            st.markdown(f"**{prefix} {msg['role'].capitalize()}:** {msg['content']}")
-
-        st.rerun()
+    # Rerun so the full history is redrawn nicely
+    st.rerun()
