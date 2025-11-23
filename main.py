@@ -3,6 +3,7 @@ from supabase import create_client, Client
 from dotenv import load_dotenv
 import os
 import requests
+import time
 
 # --- Load environment ---
 load_dotenv()
@@ -86,28 +87,55 @@ if user_input:
 
     # --- 4.2 Show "loading" bubble for the bot ---
     with st.chat_message("assistant", avatar="🤖"):
-        placeholder = st.empty()
-        placeholder.markdown("⌛ Pensando...")
+        # --- 4.2 "Loading" enquanto o bot pensa ---
+        status_placeholder = st.empty()
+        status_placeholder.markdown("⌛ Pensando...")
 
         # --- 4.3 Call Flask API ---
         try:
             payload = {"message": user_input, "lead_id": lead_id}
-            response = requests.post(server_endpoint, json=payload, timeout=30)
+            response = requests.post(server_endpoint, json=payload, timeout=50)
 
             if response.status_code == 200:
-                bot_reply = response.json().get("reply", "✅ Flask API processed message.")
+                data = response.json()
+                reply = data.get("reply", "✅ Flask API processed message.")
             else:
-                bot_reply = f"❌ API error: {response.status_code}"
+                reply = f"❌ API error: {response.status_code}"
         except Exception as e:
-            bot_reply = f"⚠️ Error contacting Flask API: {e}"
+            reply = f"⚠️ Error contacting Flask API: {e}"
 
-        # Replace loading text with real reply
-        placeholder.markdown(bot_reply)
+        # Some o "Pensando..."
+        status_placeholder.empty()
 
-    # --- 4.4 Save bot response & update session ---
-    bot_msg = {"lead_id": lead_id, "role": "bot", "content": bot_reply}
-    supabase.table("messages").insert(bot_msg).execute()
-    st.session_state.messages.append(bot_msg)
+        # --- 4.4 Tratar múltiplos balões (novo formato) ---
+        if isinstance(reply, list):
+            # reply esperado: [{"text": "...", "delay": 1.8}, ...]
+            for chunk in reply:
+                text = chunk.get("text", "")
+                delay = float(chunk.get("delay", 1.5))
 
-    # Rerun so the full history is redrawn nicely
-    st.rerun()
+                # espera antes do próximo balão (efeito humano)
+                time.sleep(delay)
+
+                # mostra um novo balão do bot
+                with st.chat_message("assistant", avatar="🤖"):
+                    st.markdown(text)
+
+                # salva cada balão como uma mensagem separada no histórico
+                bot_msg = {"lead_id": lead_id, "role": "bot", "content": text}
+                supabase.table("messages").insert(bot_msg).execute()
+                st.session_state.messages.append(bot_msg)
+
+        else:
+            # fallback: resposta antiga em string única
+            text = str(reply)
+            with st.chat_message("assistant", avatar="🤖"):
+                st.markdown(text)
+
+            bot_msg = {"lead_id": lead_id, "role": "bot", "content": text}
+            supabase.table("messages").insert(bot_msg).execute()
+            st.session_state.messages.append(bot_msg)
+
+        # Rerun so the full history is redrawn nicely
+        st.rerun()
+
